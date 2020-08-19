@@ -20,14 +20,15 @@ dependencies {
 
 application {
     // Define the main class for the application.
-    mainClassName = "io.github.technical27.mafia.AppKt"
+    mainClass.set("io.github.technical27.mafia.AppKt")
 }
 
-
-tasks.jar {
+tasks.withType<Jar> {
     manifest {
         attributes["Main-Class"] = "io.github.technical27.mafia.AppKt"
     }
+
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 
     from(sourceSets.main.get().output)
 
