@@ -9,21 +9,17 @@ class HelpCommand(val prefix: String, val commands: CommandMap) : Command {
 
   override fun getDescription() = "why do you need help with the help command?"
 
-  fun formatHelp(format: String) =
-    """```
-      |Available Commands:
-      |${format}
-
-      |use ${prefix}help <command> to get more information about a command
-      |all commands are NOT case sensitive
-    |```""".trimMargin()
+  private val HELP_START = "```Available Commands:\n"
+  private val HELP_END = """
+                         use ${prefix}help <command> to get more information about a command
+                         all commands are NOT case sensitive```
+                         """.trimIndent()
 
   override fun run(args: CommandArgs) {
     val channel = args.event.getChannel();
     if (args.args.size == 0) {
-      println(formatHelp(""))
       channel
-        .sendMessage(formatHelp(commands.keys.joinToString("\n", transform = { "- $it" })))
+        .sendMessage(commands.keys.joinToString("\n", HELP_START, "\n\n$HELP_END", transform = { "- $it" }))
         .queue()
     } else {
       val cmdName = args.args[0].toLowerCase()
