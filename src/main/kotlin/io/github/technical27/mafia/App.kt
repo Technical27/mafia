@@ -1,33 +1,35 @@
 package io.github.technical27.mafia
 
-import net.dv8tion.jda.api.JDABuilder
-import net.dv8tion.jda.api.hooks.ListenerAdapter
-import net.dv8tion.jda.api.events.ReadyEvent
-import net.dv8tion.jda.api.events.message.MessageReceivedEvent
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.reactive.*
+
+import discord4j.core.DiscordClient
+import discord4j.core.event.domain.message.MessageCreateEvent
+import discord4j.core.event.domain.message.ReactionAddEvent
+
 import io.github.cdimascio.dotenv.dotenv
+
 import io.github.technical27.mafia.commands.*
 import io.github.technical27.mafia.Defaults
 import io.github.technical27.mafia.GameListener
 
 typealias CommandMap = HashMap<String, Command>
 
-class BotListener(val prefix: String, val commands: CommandMap) : ListenerAdapter() {
-  override fun onReady(event: ReadyEvent) {
-    println("logged in")
-  }
+class CommandParser(val prefix: String, val commands: CommandMap) {
+  suspend fun parse(event: MessageCreateEvent) {
+    val message = event.message
 
-  override fun onMessageReceived(event: MessageReceivedEvent) {
-    val msg = event.getMessage()
-    val content = msg.getContentRaw()
+    if (!message.author.isPresent() || !message.content.startsWith(prefix)) return
 
-    if (event.getAuthor().isBot() || !content.startsWith(prefix)) return
+    val author = message.author.get()
+    if (author.isBot()) return
 
+    val content = message.content
     val args = ArrayList(content.drop(1).split(Regex("\\s+")))
     val cmdName = args.removeAt(0).toLowerCase()
 
-    val command = commands[cmdName]
-
-    if (command != null) command.run(CommandArgs(event, args))
+    commands[cmdName]?.run(CommandArgs(event, args))
   }
 }
 
@@ -37,22 +39,32 @@ infix fun CommandMap.register(cmd: Command) {
   this[name] = cmd
 }
 
-fun main() {
+fun main() = runBlocking<Unit> {
   println("starting up")
   val dotenv = dotenv()
   val commands = CommandMap()
   val prefix = Defaults.prefix(dotenv["DISCORD_PREFIX"])
+  val commandParser = CommandParser(prefix, commands)
   val gameListener = GameListener()
 
   commands register StartCommand(gameListener)
   commands register HelpCommand(prefix, commands)
 
-  val jda = JDABuilder
-    .createDefault(dotenv["DISCORD_TOKEN"])
-    .addEventListeners(BotListener(prefix, commands))
-    .addEventListeners(gameListener)
-    .addEventListeners()
-    .build()
+  val client = DiscordClient.create(dotenv["DISCORD_TOKEN"]!!)
+  val gateway = client.login().awaitSingle()
 
-  Runtime.getRuntime().addShutdownHook(Thread({ jda.shutdown() }))
+  Runtime.getRuntime().addShutdownHook(Thread({ gateway.logout().block() }))
+
+  gateway.on(MessageCreateEvent::class.java)
+    .asFlow()
+    .onEach {
+      commandParser.parse(it)
+      gameListener.message(it)
+    }
+    .launchIn(this)
+
+  gateway.on(ReactionAddEvent::class.java)
+    .asFlow()
+    .onEach { gameListener.reaction(it) }
+    .launchIn(this)
 }

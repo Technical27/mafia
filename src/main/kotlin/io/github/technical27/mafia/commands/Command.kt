@@ -1,11 +1,11 @@
 package io.github.technical27.mafia.commands
 
-import net.dv8tion.jda.api.events.message.MessageReceivedEvent
+import discord4j.core.event.domain.message.MessageCreateEvent
 
-data class CommandArgs(val event: MessageReceivedEvent, val args: ArrayList<String>)
+data class CommandArgs(val event: MessageCreateEvent, val args: ArrayList<String>)
 
 interface Command {
-  fun run(args: CommandArgs) {
+  suspend fun run(args: CommandArgs) {
     println("command: ${getName()} empty placeholder")
   }
 

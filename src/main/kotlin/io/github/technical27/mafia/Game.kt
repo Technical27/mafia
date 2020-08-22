@@ -1,9 +1,14 @@
 package io.github.technical27.mafia
 
-import net.dv8tion.jda.api.hooks.ListenerAdapter
-import net.dv8tion.jda.api.events.message.guild.GuildMessageReceivedEvent
-import net.dv8tion.jda.api.events.message.react.GenericMessageReactionEvent
-import net.dv8tion.jda.api.entities.User
+import kotlinx.coroutines.reactive.*
+import kotlinx.coroutines.*
+
+import discord4j.core.event.domain.message.MessageCreateEvent
+import discord4j.core.event.domain.message.ReactionAddEvent
+import discord4j.core.GatewayDiscordClient
+import discord4j.core.`object`.entity.User
+import discord4j.core.`object`.reaction.ReactionEmoji
+import discord4j.common.util.Snowflake
 
 enum class GameState {
   INVITE,
@@ -19,61 +24,75 @@ class Game(val host: User) {
   }
 }
 
-class GameListener : ListenerAdapter() {
+class GameListener {
   val games: HashMap<User, Game> = HashMap()
   val invitedPlayers: HashMap<User, Game> = HashMap()
 
-  override fun onGuildMessageReceived(event: GuildMessageReceivedEvent) {
-    val author = event.getAuthor()
-    val guild = event.getGuild()
+  suspend fun message(event: MessageCreateEvent) {
+    val message = event.message
 
+    if (!message.author.isPresent()) return
+    val author = message.author.get()
     if (author.isBot()) return
 
     val game = games[author]
     if (game == null || game.state != GameState.INVITE) return
 
-    val content = event.getMessage().getContentRaw()
-    val mentions = MENTION_REGEX.findAll(content)
+    val mentions = MENTION_REGEX.findAll(message.content)
 
     if (mentions.count() > 0) {
-      val cache = guild.getMemberCache()
+      val gateway = message.getClient()
       for (mention in mentions) {
-        val member = cache.getElementById(mention.groupValues[1])
-        if (member != null) invitePlayer(member.getUser(), game)
+        val user = gateway.getUserById(Snowflake.of(mention.groupValues[1])).awaitSingle()
+        invitePlayer(user, game)
       }
     }
   }
 
-  override fun onGenericMessageReaction(event: GenericMessageReactionEvent) {
-    val author = event.getUser()
+  suspend fun reaction(event: ReactionAddEvent) {
+    val author = event.getUser().awaitSingle()
     val game = invitedPlayers[author]
 
     if (game == null || author == null) return
 
-    when (event.getReactionEmote().getEmoji()) {
-      CHECKMARK -> game.addPlayer(author)
+    val emoji = event.getEmoji().asUnicodeEmoji()
+    if (!emoji.isPresent()) return
+
+    when (emoji.get()) {
+      CHECKMARK -> addPlayer(author, game)
       CROSSMARK -> invitedPlayers.remove(author)
     }
   }
 
-  fun invitePlayer(user: User, game: Game) {
+  suspend fun invitePlayer(user: User, game: Game) {
     invitedPlayers[user] = game
-    user.openPrivateChannel()
-      .flatMap({
-        it.sendMessage("${user.getName()} invite you to a game of mafia, react to accept or decline")
-      })
-      .queue({ msg ->
-        msg.addReaction(CHECKMARK).flatMap({ msg.addReaction(CROSSMARK) }).queue()
-      })
+    val channel = user.getPrivateChannel().awaitSingle()
+    val message = channel.createMessage(
+      "${game.host.getUsername()} invited you to a game of mafia, react to accept or decline"
+    ).awaitSingle()
+    message.addReaction(CHECKMARK).and(message.addReaction(CROSSMARK)).awaitFirstOrNull()
+
+    GlobalScope.launch {
+      // Actual delay
+      // delay(1000L * 60L * 5L)
+      delay(10_000L)
+      message.delete().awaitFirstOrNull()
+      invitedPlayers.remove(user)
+    }
   }
 
   fun newGame(user: User) {
     games[user] = Game(user)
   }
 
+  fun addPlayer(user: User, game: Game) {
+    invitedPlayers.remove(user)
+    game.addPlayer(user)
+  }
+
   companion object {
-    val CHECKMARK = "\u2705"
-    val CROSSMARK = "\u274C"
+    val CHECKMARK = ReactionEmoji.unicode("\u2705")
+    val CROSSMARK = ReactionEmoji.unicode("\u274C")
     val MENTION_REGEX = Regex("<@!?(\\d+)>")
   }
 }

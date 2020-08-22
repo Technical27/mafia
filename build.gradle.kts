@@ -14,7 +14,9 @@ repositories {
 
 dependencies {
     implementation(kotlin("stdlib"))
-    implementation("net.dv8tion:JDA:4.2.0_168")
+    implementation("com.discord4j:discord4j-core:3.1.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.3.9")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactive:1.3.9")
     implementation("io.github.cdimascio:java-dotenv:5.2.1")
 }
 
