@@ -7,6 +7,7 @@ import discord4j.core.event.domain.message.MessageCreateEvent
 import discord4j.core.event.domain.message.ReactionAddEvent
 import discord4j.core.GatewayDiscordClient
 import discord4j.core.`object`.entity.User
+import discord4j.core.`object`.entity.Message
 import discord4j.core.`object`.reaction.ReactionEmoji
 import discord4j.common.util.Snowflake
 
@@ -15,12 +16,16 @@ enum class GameState {
   STARTED
 }
 
-class Game(val host: User) {
-  val players: HashSet<User> = hashSetOf(host)
+class Game(val host: User, val startMessage: Message) {
+  val players = hashSetOf(host)
   var state = GameState.INVITE
 
-  fun addPlayer(player: User) {
+  suspend fun addPlayer(player: User) {
+    println("$players")
     players.add(player)
+    startMessage.edit({
+      it.setContent("```${players.count()} people are in ${host.getUsername()}'s game```")
+    }).awaitSingle()
   }
 }
 
@@ -44,7 +49,9 @@ class GameListener {
       val gateway = message.getClient()
       for (mention in mentions) {
         val user = gateway.getUserById(Snowflake.of(mention.groupValues[1])).awaitSingle()
-        invitePlayer(user, game)
+        // if (!game.players.contains(user) || !invitedPlayers.contains(user)) {
+          invitePlayer(user, game)
+        // }
       }
     }
   }
@@ -60,7 +67,7 @@ class GameListener {
 
     when (emoji.get()) {
       CHECKMARK -> addPlayer(author, game)
-      CROSSMARK -> invitedPlayers.remove(author)
+      CROSSMARK -> removePlayer(author, game)
     }
   }
 
@@ -77,15 +84,31 @@ class GameListener {
       // delay(1000L * 60L * 5L)
       delay(10_000L)
       message.delete().awaitFirstOrNull()
+      removePlayerTimeout(user, game)
+    }
+  }
+
+  fun newGame(user: User, startMessage: Message) {
+    games[user] = Game(user, startMessage)
+  }
+
+  suspend fun removePlayerTimeout(user: User, game: Game) {
+    if (invitedPlayers.contains(user)) {
+      val channel = game.host.getPrivateChannel().awaitSingle()
+      channel.createMessage("```${user.getUsername()} didn't accept your invite```").awaitSingle()
       invitedPlayers.remove(user)
     }
   }
 
-  fun newGame(user: User) {
-    games[user] = Game(user)
+  suspend fun removePlayer(user: User, game: Game) {
+    val channel = game.host.getPrivateChannel().awaitSingle()
+    channel.createMessage("```${user.getUsername()} declined your invite```").awaitSingle()
+    invitedPlayers.remove(user)
   }
 
-  fun addPlayer(user: User, game: Game) {
+  suspend fun addPlayer(user: User, game: Game) {
+    val channel = game.host.getPrivateChannel().awaitSingle()
+    channel.createMessage("```${user.getUsername()} accepted your invite```").awaitSingle()
     invitedPlayers.remove(user)
     game.addPlayer(user)
   }

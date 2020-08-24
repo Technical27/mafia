@@ -12,11 +12,15 @@ class StartCommand(val gameListener: GameListener) : Command {
   override fun getDescription() = "starts the game"
 
   override suspend fun run(args: CommandArgs) {
+    val user = args.event.message.getAuthor()
+    if (!user.isPresent()) return
+
+    val author = user.get()
     val channel = args.event.message.getChannel().awaitSingle();
 
     if (args.args.size == 0) {
-      channel.createMessage("```Welcome to mafia!, mention 5-9 other people to invite them!```").awaitSingle()
-      gameListener.newGame(args.event.message.getAuthor().get())
+      val message = channel.createMessage("```Welcome to mafia!, mention 5-9 other people to invite them!```").awaitSingle()
+      gameListener.newGame(author, message)
     }
   }
 }
